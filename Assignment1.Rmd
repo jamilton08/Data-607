@@ -1,0 +1,106 @@
+---
+title: "NBA Player's Impact On Their Team"
+author: "Jonathan Cruz"
+date: "2024-01-28"
+output: html_document
+---
+
+## Introduction
+RAPTOR collects basketball data on individual players every Basketball game to dertermine a RAPTOR score. A RAPTOR score tells us how impactful a players is overall(defensively and offensively), thus indicating the statistically best player. 
+
+
+## Resources
+viewable dataset :
+https://projects.fivethirtyeight.com/nba-player-ratings/?player=Nikola%20Jokic&season=2023
+
+dataset file : 
+https://projects.fivethirtyeight.com/nba-model/2023/latest_RAPTOR_by_team.csv
+
+## Mission
+NBA players are statically compared to each other league wide to give a sense of how we can rank them and RAPTOR does a great job at ranking  them accordingly based on production(offense and defense) per 100 possesions however we'd like to further dissolve how teams is productions compare to each other in terms of Raptor score and how responsible  each player is for their team's respective overall raptor score
+
+
+
+## Load Dataset
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(knitr)
+url = "https://projects.fivethirtyeight.com/nba-model/2023/latest_RAPTOR_by_team.csv"
+player_stats <- read_csv(url)
+
+```
+
+## View Variables
+```{r}
+glimpse(player_stats)
+
+```
+
+## Variable Definitions
+```{r, layout="l-body-outset"}
+
+#
+vd <- tribble(
+~column, ~Description,
+"player_name",	"Player name",
+"player_id",	"Basketball-Reference.com player ID",
+"season",	"Season",
+"season_type",	"Regular season (RS) or playoff (PO)",
+"team",	"Basketball-Reference ID of team",
+"poss",	"Possessions played",
+"mp",	"Minutes played",
+"raptor_box_offense",	"Points above average per 100 possessions added by player on offense, based only on box score estimate",
+"raptor_box_defense",	"Points above average per 100 possessions added by player on defense, based only on box score estimate",
+"raptor_box_total",	"Points above average per 100 possessions added by player, based only on box score estimate",
+"raptor_onoff_offense",	"Points above average per 100 possessions added by player on offense, based only on plus-minus data",
+"raptor_onoff_defense",	"Points above average per 100 possessions added by player on defense, based only on plus-minus data",
+"raptor_onoff_total",	"Points above average per 100 possessions added by player, based only on plus-minus data",
+"raptor_offense",	"Points above average per 100 possessions added by player on offense, using both box and on-off components",
+"raptor_defense",	"Points above average per 100 possessions added by player on defense, using both box and on-off components",
+"raptor_total",	"Points above average per 100 possessions added by player on both offense and defense, using both box and on-off components",
+"war_total",	"Wins Above Replacement between regular season and playoffs",
+"war_reg_season",	"Wins Above Replacement for regular season",
+"war_playoffs",	"Wins Above Replacement for playoffs",
+"predator_offense",	"Predictive points above average per 100 possessions added by player on offense",
+"predator_defense",	"Predictive points above average per 100 possessions added by player on defense",
+"predator_total",	"Predictive points above average per 100 possessions added by player on both offense and defense",
+"pace_impact",	"Player impact on team possessions per 48 minutes"
+)
+
+kable(vd)
+```
+## Dependent Variables and Subset
+dependents : player_name, team, raptor_total. 
+
+Subset : season -> 2023 - 2024, minutes_played -> more than 5 minutes per game, season_type -> regular season.  
+
+
+```{r}
+player_stats_sub <- player_stats |> filter(season == 2023 | 2024) |> filter(season_type == "RS") |> filter(mp >= 82 * 5 )|> select (player_name = player_name, team = team, raptor_total = raptor_total)
+
+kable(player_stats_sub)
+
+```
+## Generated Metrics
+total_team_impact_raptor -> team is individual player's raptor points is distance from zero added together
+
+overall_team_raptor -> team is individual's players raptor points added together
+
+number_of_team_players -> players in each team
+
+rtcp(raptor_team_component_percentage) -> individual player is contribution percentage to team's total raptor points
+
+impact -> individual player is impact on team's total raptor score
+```{r}
+total_team_raptor = player_stats_sub |>  summarize( total_team_impact_raptor = sum(abs(raptor_total)), overall_team_raptor = sum(raptor_total),  number_of_team_players = n(), .by = team )
+#aptor_team_contribution_percent
+player_stats <- inner_join(player_stats_sub, total_team_raptor, by = "team") |> mutate(rtcp = format(round(abs((raptor_total / total_team_impact_raptor) * 100), 2), nsmall = 2), impact = ifelse(raptor_total > 0, "Positive", "Negative"))
+
+
+player_stats <- transform(player_stats, rtcp = as.character(rtcp)) |> mutate(rtcp = str_c("% ", rtcp))
+kable(player_stats)
+```
+
+## Future Exploration
+The above metrics demostrated the level of impact a player have for their respective team statistically, we can further expand our analysis on referencing the play by play and seeing how those specific play contribute the players involved's raptor scores. Furthermore, from there we can determine what is the most effective way for teams to increase their raptor score thus leading to more imformative decision on plays a team would run.
