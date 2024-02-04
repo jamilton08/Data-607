@@ -1,0 +1,62 @@
+---
+title: "Assignment 2"
+author: "Jonathan Cruz"
+date: "2024-02-02"
+output: html_document
+---
+
+# MOVIE RATINGS AVERAGE
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+# Load Libraries
+```{r}
+library(RMySQL)
+library(hrbrthemes)
+library(tidyverse)
+library(knitr)
+```
+
+# Load Table From Database
+This extract the values for our rating by connecting to a local database in my machine, I provided an alternate csv method of loading the movie ratings table through csv, with the csv file.
+```{r}
+#Here i will extract results from database 
+mysqlconnection = dbConnect(RMySQL::MySQL(), dbname='movie_ratings', host='localhost', port=3306, user='root', password='Uussd0vtusuZ')
+dbListTables(mysqlconnection)
+result = dbSendQuery(mysqlconnection, "select * from ratings")
+data.frame = fetch(result, n = 10) 
+#Below all NA value are displayed
+print(data.frame)
+```
+## Alterative Load as CSV IF No Connection To DB
+
+As csv we extract null values and must convert them to NA in order for it to function just like reading it from a database would
+```{r}
+
+data.frame <- read_csv("movie_ratings.csv")
+data.frame[data.frame == 'NULL'] <- NA
+data.frame <- data.frame |> mutate_at(c("barbie", "past_lives", "the_holdovers", "anatomy_of_fall", "poor_things", "air"), as.numeric)
+
+print(data.frame[2:7])
+
+```
+
+## Calculate Average And Compare 
+
+
+```{r}
+data.frame.reduced <- data.frame |> select(barbie : air)
+df <- tribble(~movie_name, ~average,)
+kable(df)
+# in each column we'd like to remove all NA values in order to calculate average rating based on how many people voted for the movie
+for (i in colnames(data.frame.reduced)){
+     df[nrow(df) + 1,] = list(i, mean( na.omit(data.frame[[i]])))
+}
+
+ggplot(df, aes(x = reorder(movie_name, -average), y = average, fill = movie_name)) +  geom_bar(stat = "identity") + theme_ipsum()
+
+```
+
