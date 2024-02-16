@@ -1,0 +1,75 @@
+---
+title: "607 project 1"
+author: "Jonathan Cruz"
+date: "2024-02-15"
+output: html_document
+---
+
+# Project 1
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(dplyr)
+library(knitr)
+```
+## Load and Clean
+load the text file and remove the data that will not be used for this project
+
+```{r}
+str <- read.csv(file="tournamentinfo.txt", header=FALSE, sep="|")
+str <- str |> filter(!str_detect(V1, "^-+$"))
+str <- str[3 : nrow(str), ]
+```
+
+## Isolation
+will isolate data based on it's regex matches and filter rows that contains such matches
+```{r}
+names_collecter <- str |> filter(str_detect(V2, "[A-Z] [A-Z]"))
+state_collecter <- str |> filter(str_detect(V1, "[A-Z][A-Z]"))
+points_collector <-  str |> filter(str_detect(V3, "\\d+\\.\\d")) 
+pre_rating_collector <- str |> filter(str_detect(V2, "\\d+"))
+pre_rating_collector <- pre_rating_collector |> mutate(V2 =str_extract(V2,":\\s+\\d+"))
+pre_rating_collector <- pre_rating_collector |> mutate(V2 = str_remove_all(V2, " "))
+pre_rating_collector <- pre_rating_collector |> mutate(V2 = str_remove_all(V2, ":"))
+```
+
+## Table Without Calculations
+here will create our table that doesnt not have the avg_pre_rating calculations yet
+
+```{r}
+tab <- tibble(player_name = names_collecter$V2, state = state_collecter$V1, total_points = points_collector$V3, pre_rating = pre_rating_collector$V2)
+tab <- transform(tab, pre_rating = as.integer(pre_rating))
+
+kable(tab)
+```
+
+## Calculate Average Pre Rating
+will calculate average_pre_rating
+
+```{r}
+avg_pre_vector <- c()
+for(i in 1:nrow(points_collector)) {
+    count = 0
+    adder = 0
+    for (j in 5 : ncol(points_collector) - 1){
+        if(str_detect(points_collector[i,j] ,"L|D|W") ){
+          index_str = str_extract(points_collector[i,j], "\\d+" )
+          index = strtoi(index_str)
+          adder = adder + tab[index, "pre_rating"]
+          count <- count + 1
+        }
+    }
+    avg_pre_vector <- append(avg_pre_vector, round(adder / count))
+}
+
+kable(avg_pre_vector)
+
+```
+
+## Attach Calculations and Write CSV
+```{r}
+tab <- tab |> mutate(avg_pre_rating = avg_pre_vector)
+
+write_csv(tab, file = "results.csv")
+kable(tab)
+```
