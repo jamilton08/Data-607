@@ -1,0 +1,55 @@
+---
+title: "Assignment 5"
+author: "Jonathan Cruz"
+date: "2024-02-24"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(tidyverse)
+untid <- read_csv("untidy.csv") |> janitor::clean_names() |> rename(company = 1, ood = 2) |> drop_na(ood) |> mutate(company = ifelse(is.na(company), lag(company), company))
+
+untid <- untid |> pivot_longer(cols = los_angeles:seattle, names_to = "territory", values_to = "arrival")
+untid <- untid |> pivot_wider( names_from = ood, values_from = arrival) |> mutate(territory  = str_replace(territory, "_", " ")) |> mutate(territory = str_to_title(territory))  
+
+```
+
+## Load With Clean Names
+
+names that can be referred to when subsetting dataframes( no whitespaces between names or no invalid characters) and filling company column with appropriate values
+
+
+
+```{r}
+untid <- read_csv("untidy.csv") |>
+          janitor::clean_names() |> 
+          rename(company = 1, ood = 2) |> 
+          drop_na(ood) |> mutate(company = ifelse(is.na(company), lag(company), company))
+kable(untid)
+```
+
+## Lengthen Data
+
+States are listed as columns holding the amount of delays and on time flights they had however this not a appropriate way of handling analysis in  vectorized programming. We would to have them as observations instead of variables.
+
+
+```{r}
+untid <- untid |>
+          pivot_longer(cols = los_angeles:seattle, names_to = "territory", values_to = "arrival")
+kable(untid)
+```
+
+
+## Widen Data
+
+On time and delayed are two observations that are common in almost every row, and are directly linked to how often it occured so we would like to make them variables and making their number occurences an observation. 
+
+```{r}
+untid <- untid |> 
+         pivot_wider( names_from = ood, values_from = arrival) |>
+         mutate(territory  = str_replace(territory, "_", " ")) |> 
+         mutate(territory = str_to_title(territory))  
+kable(untid)
+```
