@@ -1,0 +1,88 @@
+---
+title: "Assignment 6"
+author: "Jonathan Cruz"
+date: "2024-03-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#uncomment package install if not installeld yet
+#install.packages("rvest")
+#install.packages("xml2")
+#install.packages("jsonlite")
+
+packages <- c("rvest", "tidyverse", "knitr", "xml2", "jsonlite")
+
+lapply(packages, library, character.only = TRUE)
+```
+
+## HTML Table Load
+
+```{r}
+html_table  <- as.data.frame(read_html("books.html") |> html_table(fill=TRUE))
+kable(html_table)
+is.data.frame(html_table) 
+```
+
+## XML Table Load
+it loads as a list so must convert
+
+```{r}
+xml_file = "books.xml"
+books_xml = read_xml(xml_file)
+is.data.frame(books_xml) 
+
+```
+
+### Convert XML List to dataframe
+
+```{r}
+## reload to make subvectors as lists as well
+books_xml <- as_list(read_xml(xml_file))
+
+xml_book_df = tibble::as_tibble(books_xml)|>
+              mutate(number = row_number())|>
+              unnest_longer(books)
+
+df_unt_1 <- xml_book_df  |>
+            unnest_longer( col = books, names_repair = "minimal") |>
+            select(c(1,3,4)) 
+
+df_unt_2 <- df_unt_1  |> 
+            filter(books_id != "title") |>
+            unnest_longer( col = books, names_repair = "minimal") 
+
+book_df <- rbind(df_unt_1 |>
+           filter(books_id == "title"), df_unt_2)
+
+books_df <- book_df |> 
+  pivot_wider(
+    names_from = books_id,
+    values_from = books
+  )
+
+books_df <- books_df |>
+              unnest_longer(col = c(title)) |> 
+              unnest_longer(col = c(authors)) |> 
+              unnest_longer(col = c(favoriteAttributes)) |>
+              select(2,4,6)
+
+kable(books_df)
+is.data.frame(books_df) 
+
+```
+
+
+## Load JSON table
+
+```{r}
+books_data <- fromJSON("books.json") 
+json_books_df <- as.data.frame(books_data) 
+kable((json_books_df))
+is.data.frame(json_books_df)
+```
+
+## Conclusion
+
+In conclusion JSON and HTML had libraries that would directly load their contents to an R dataframe although not perfect as books still need some tidying since many of the favorite attributes and authors are on the same row and it can be beneficial seperating them for analysis purposes. XML on the other hand dealt with a larger diffirence in data structure making it a little more complicated when loading into R as many of the values came in terms of lists so you have to unnest them.
