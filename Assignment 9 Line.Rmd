@@ -1,0 +1,38 @@
+---
+title: "Assignment 9 Line"
+author: "Jonathan Cruz"
+date: "2024-03-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(httr2)
+library(tidyverse)
+library(jsonlite)
+library(tidyr)
+library(knitr)
+```
+
+```{r}
+
+while(TRUE){
+  cat = readline(prompt = "Enter any categories you want articles about : ");
+  url <- str_replace("https://api.nytimes.com/svc/search/v2/articlesearch.json?q=userCategoryHere&api-key=3Ik85TypYHio0ioMKheP1aAKJglXHt5a", "userCategoryHere", cat)
+  req <- request(url) 
+  resp <- req |> req_perform()
+      if (resp |> resp_status() == 200){
+      articles_l <- resp |> resp_body_string()
+      articles_l <- str_extract(articles_l, "docs.+meta")
+      articles_l <- articles_l |> str_remove( "docs\":") |> str_remove(",\"meta")
+      # Create a dataframe with each character as a separate row
+      df <- fromJSON(articles_l)  |>
+        unnest(cols = multimedia) |>
+        unnest(cols = keywords, names_sep = "_") |>
+        unnest(cols = c(byline, headline, legacy)) |>
+        unnest(cols = person, names_sep = "_s")
+      break
+      }
+}
+
+print(df)
+```

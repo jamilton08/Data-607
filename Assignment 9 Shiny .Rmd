@@ -1,0 +1,77 @@
+---
+title: "Assignment 9"
+author: "Jonathan Cruz"
+date: "2024-03-24"
+output: html_document
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+library(httr2)
+library(tidyverse)
+library(jsonlite)
+library(tidyr)
+library(shiny)
+```
+
+
+
+```{r}
+ui <- fluidPage(
+  
+  # Application title
+  titlePanel("Get News DataFrame"),
+  
+  # Sidebar layout with input and output definitions
+  sidebarLayout(
+    sidebarPanel(
+     textInput("input_string", "Enter a category you'd like articles about:", placeholder = "Type here..."),
+      # Generate button
+      actionButton("generate_btn", "Generate DataFrame")
+    ),
+    
+    # Output: Display the dataframe
+    mainPanel(
+      tableOutput("dataframe_output")
+    )
+  )
+)
+
+
+server <- function(input, output) {
+  
+  # Reactive function to generate dataframe
+  generateDataFrame <- eventReactive(input$generate_btn, {
+    url <- str_replace("https://api.nytimes.com/svc/search/v2/articlesearch.json?q=userCategoryHere&api-key=3Ik85TypYHio0ioMKheP1aAKJglXHt5a", "userCategoryHere", input$input_string)
+    req <- request(url) 
+    resp <- req |> req_perform()
+    if (resp |> resp_status() == 200){
+    articles_l <- resp |> resp_body_string()
+    articles_l <- str_extract(articles_l, "docs.+meta")
+    articles_l <- articles_l |> str_remove( "docs\":") |> str_remove(",\"meta")
+    # Create a dataframe with each character as a separate row
+    df <- fromJSON(articles_l)  |>
+      unnest(cols = multimedia) |>
+      unnest(cols = keywords, names_sep = "_") |>
+      unnest(cols = c(byline, headline, legacy)) |>
+      unnest(cols = person, names_sep = "_s") 
+    df
+  }else{
+    NULL
+  }
+  })
+  
+  # Render the dataframe
+  output$dataframe_output <- renderTable({
+    if (!is.null(generateDataFrame())) {
+      generateDataFrame()
+    } else {
+      "Failed to fetch data. Please try again later."
+    }
+  })
+}
+
+shinyApp(ui = ui, server = server)
+
+```
+
