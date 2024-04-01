@@ -1,0 +1,129 @@
+---
+title: "Assignment Week 10"
+author: "Jonathan Cruz"
+date: "2024-03-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidytext)
+library(janeaustenr)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(wordcloud)
+library(wordcloud2)
+```
+
+```{r}
+get_sentiments("afinn")
+get_sentiments("bing")
+get_sentiments("nrc")
+```
+
+```{r }
+tidy_books <- austen_books() %>%
+  group_by(book) %>%
+  mutate(
+    linenumber = row_number(),
+    chapter = cumsum(str_detect(text, 
+                                regex("^chapter [\\divxlc]", 
+                                      ignore_case = TRUE)))) %>%
+  ungroup() %>%
+  unnest_tokens(word, text)
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r }
+nrc_joy <- get_sentiments("nrc") %>% 
+  filter(sentiment == "joy")
+
+tidy_books %>%
+  filter(book == "Emma") %>%
+  inner_join(nrc_joy) %>%
+  count(word, sort = TRUE)
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+```{r}
+jane_austen_sentiment <- tidy_books %>%
+  inner_join(get_sentiments("bing"))  |> 
+  count(book, index = linenumber %/% 80, sentiment) |>
+  pivot_wider(names_from = sentiment, values_from =n, values_fill = 0) |>
+  mutate(sentiment = positive - negative)
+```
+
+```{r}
+pride_prejudice <- tidy_books |>
+                   filter(book == "Pride & Prejudice")
+```
+
+```{r}
+afinn <- pride_prejudice |>
+         inner_join(get_sentiments("afinn")) |>
+         group_by(index = linenumber %/% 80) |>
+         summarise(sentiment = sum(value)) |>
+         mutate(method = "AFINN")
+
+bing_and_nrc <- bind_rows(
+  pride_prejudice |>
+    inner_join(get_sentiments("bing"))|>
+    mutate(method = "Bing et al."),
+  pride_prejudice |> 
+    inner_join(get_sentiments("nrc") |>
+                 filter(sentiment %in% c("positive",
+                                          "negative"))
+    ) |>
+    mutate(method = "NRC")) |>
+    count(method, index = linenumber %/% 80, sentiment) |>
+  pivot_wider(names_from = sentiment,
+              values_from = n,
+              values_fill = 0) |>
+  mutate(sentiment = positive - negative)
+```
+
+
+```{r}
+
+book_lines <- tidy_books |>
+                   filter(book == "Pride & Prejudice")
+```
+
+```{r}
+sents <- c("positive", "negative")
+lou_and_nrc <- bind_rows(
+  book_lines |>
+    inner_join(get_sentiments("nrc")) |>
+    filter(sentiment %in% sents ),
+  book_lines |>
+    inner_join(get_sentiments("loughran")) |>
+    filter(sentiment %in% sents )
+) |> 
+  group_by(book, chapter, sentiment) |>
+  summarise(n = n()) |>
+   pivot_wider(names_from = sentiment,
+              values_from = n,
+              values_fill = 0) |>
+  mutate(sentiment = positive - negative) 
+
+    
+  
+
+
+```
+```{r}
+book_lines |>
+  filter(chapter == 36) |>
+  count(word) |>
+  wordcloud2(size = 1.5)
+  
+```
+
+```{r}
+
+```
