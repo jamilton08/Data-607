@@ -1,0 +1,483 @@
+---
+title: "Classify"
+author: "Jonathan Cruz"
+date: "2024-04-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+library(tidyverse)
+library(tidytext)
+library(readtext)
+library(stringr)
+library(stringi)
+library(wordcloud2)
+library(superml)
+data("stop_words")
+library(tm)
+library(MASS)
+library(Matrix)
+library(class)
+library(ggraph)
+library(igraph)
+library(glmnet)
+library(broom)
+library(yardstick)
+library(caret)
+library(knitr)
+library(kableExtra)
+
+```
+
+
+## Spam Data Load
+```{r echo=FALSE}
+spam_files <- readtext(paste0("spam", "/*"), encoding = "UTF-8")
+#spam_files_2 <- readtext(paste0("spam_2", "/*"), encoding = "UTF-8")
+spam_list <- rep(0, nrow(spam_files))
+spam_files$classification <- spam_list
+spam_files <- spam_files |> dplyr::select(text, classification)
+
+spam_files[1:5,] |>
+          kbl() |>
+          kable_material_dark("hover")
+```
+
+## Ham Data Load
+```{r echo=FALSE}
+ham_files <- readtext(paste0("easy_ham", "/*"), encoding = "UTF-8")
+ham_list <- rep(1, nrow(ham_files))
+ham_files$classification <- ham_list
+ham_files <- ham_files |> dplyr::select(text, classification)
+ham_files <- ham_files[1:500,]
+
+ham_files[1:5,] |>
+          kbl() |>
+          kable_material_dark("hover")
+```
+## Merge Documents
+```{r}
+documents <- rbind(ham_files, spam_files) |> mutate(a = ifelse(classification == 0, "spam", "ham"))
+```
+
+## Get Length Of Each Document
+```{r}
+documents <- documents |>
+             mutate(text_length = str_length(text))
+```
+
+## Average Document Length Visual Collection
+```{r}
+bar_data <- documents |> 
+    group_by(a) |>
+    summarise(words_count_avg = mean(text_length)) 
+```
+
+## Average Document Length Visual
+We notice that in average spam have more words then ham
+```{r}
+ggplot(bar_data, aes(x = a, y = words_count_avg, fill = a)) +  geom_bar(stat="identity") + theme(legend.position="none")
+```
+## Boxplot of Ham and  Spam
+The ranges of ham usually much more consistent then that of ham
+```{r}
+ggplot(documents, aes(x=a, y=text_length,  fill = a)) + 
+  geom_boxplot() + theme(legend.position="none")
+```
+
+## Distribution Of Words
+
+Although we see more ham being spread out, we can see spam centered around usually have more words
+```{r}
+ggplot(documents, aes(x=text_length, color=a)) +
+  geom_histogram(fill="white", alpha=0.5, bins=100)
+# Overlaid histograms
+ggplot(documents, aes(x=text_length, color=a)) +
+  geom_histogram(fill="white", alpha=0.5, position="identity", bins=100)
+```
+
+## Tidytext
+similar to sentiment format we will seperate words 
+```{r}
+words <- documents |>
+         unnest_tokens(word, text) |>
+         anti_join(stop_words) |>
+         count(word, classification, name = "freq") |>
+         filter(!str_detect(word, "^\\d|^-|^_|\\d|(.)\\1{2,}|@|^(.)\\1$|from|reciev")) |>
+         filter(freq > 2) |> 
+         mutate(word = str_remove(word, "^\\w\\.|^\\w_|^\\w-|\\w:")) |>
+         mutate(word = tolower(word))
+words[1:5,] |>
+          kbl() |>
+          kable_material_dark("hover")
+```
+
+```{r}
+
+spam <- words |>
+      filter(classification == 0) |> 
+      dplyr::select(word, freq)
+
+spam <- spam[order(-spam$freq),]
+wordcloud2(spam[1 : 150, ], color = "random-light", backgroundColor = "red")
+
+
+
+```
+
+
+```{r}
+
+ham <- words |>
+      filter(classification == 1) |> 
+      dplyr::select(word, freq)
+
+ham <- ham[order(-ham$freq),]
+wordcloud2(ham[1 : 150, ], color = "random-light", backgroundColor = "green")
+
+
+
+```
+
+## Term Frequency
+
+Here let the total number of documents be m and the total number of words be n, this creates an mXn matrix and calculates the term frequency, how often a term occures in a document then we have the inverse document frequency which gives us the reputation of the word in each document, a common word would be 0 for instance like "the" would appear in almost every document hence it is likely to be the log(1) = 0 since the numerator decides the highest number, the lowest number we can get is one however if a word doesnt occur much we get the total number of docuents over a low number of documents since were searching for all documents in the set of all documents (D) such that term(t) us in the set of words of document(d)
+
+	$idf(t,D) = log\frac{N}{d \in D : t \in d}$
+	
+after we have term frequencies and the inverse document frequency we can find the cross product to give me a good combination of term frequency and document frequency in identifying relationship between words
+```{r}
+## clean document
+tryout <- documents |>
+             mutate(id = row_number()) |> 
+             dplyr::select(text, id, classification) |>
+             unnest_tokens(word, text) |>
+             anti_join(stop_words) |>
+             mutate(word = tolower(word)) |>
+            filter(!str_detect(word, "^\\d|^-|^_|\\d|(.)\\1{2,}|@|^(.)\\1$|from|reciev")) |>
+         mutate(word = str_remove(word, "^\\w\\.|^\\w_|^\\w-|\\w:")) |>
+         group_by(id, classification)|>
+         summarise(text = str_flatten(word," "))
+  
+             
+tryout[1:5,] |>
+          kbl() |>
+          kable_material_dark("hover")
+```
+
+```{r}
+tf_idf <- words |> bind_tf_idf(classification, word, freq)
+
+tf_idf[1:5,] |>
+          kbl() |>
+          kable_material_dark("hover")
+```
+## ngrams
+relationships
+```{r}
+spam_bigrams <- tryout|>
+                unnest_tokens(
+                  bigram,
+                  text,
+                  token = "ngrams",
+                  n=2
+                  )
+
+spam_bigrams[1:5,] |>
+          kbl() |>
+          kable_material_dark("hover")
+```
+
+```{r}
+spam_bigrams_count <- spam_bigrams |>
+                      count(bigram, sort = TRUE)
+spam_bigrams_count[1:5,] |>
+          kbl() |>
+          kable_material_dark("hover")
+                      
+```
+## Trigram Analysis on Spam
+```{r}
+seperated_trigrams <- tryout |>
+                      unnest_tokens(trigram, text, token = "ngrams", n = 3) |>
+                      separate(trigram, c("i","j","k"), sep = " ") |>
+                      count(i, j, k, sort = TRUE)
+ seperated_trigrams[1:5,] |>
+          kbl() |>
+          kable_material_dark("hover") 
+```
+
+## NGram Rel
+Whats most relevant are formatting words in spam and they seem to have a formatting relationship based on high recurring patterns between email formatting words.
+```{r}
+spam_bigrams_graph <- spam_bigrams_count |>
+                      filter(n > 30) |>
+                      graph_from_data_frame()
+custom_arrow <- grid::arrow(type = "closed", length = unit(.16, "inches"))
+
+ggraph(spam_bigrams_graph, layout = "fr") + 
+  geom_edge_link(
+    aes(edge_alpha = n),
+    show.legend = FALSE,
+    arrow = custom_arrow,
+    end_cap = circle(0.5, "inches")) + 
+  geom_node_point(color = "sienna1", size = 4) + 
+  geom_node_text(aes(label = name),  size = 2) + 
+  theme_void()
+```
+## Seperate Between Train and Test
+75% of the data will be used to train the model and the other 25% to test to check how effictive it is in it's predictions
+```{r}
+smp_size <- floor(0.75 * nrow(tryout))
+train_ind <- sample(seq_len(nrow(tryout)), size = smp_size)
+
+train <- tryout[train_ind, "id" ]
+test <- tryout[-train_ind, "id" ]
+
+```
+
+## Training Data
+Put words into a measurable format in order to fit it into a model which means we will put them into numbers.
+```{r}
+sparse_words <- tryout |>
+                unnest_tokens(word, text) |>
+                count(id, word) |> 
+                inner_join(train) |>
+                cast_sparse(id, word, n)
+
+```
+
+## Document Gather
+```{r}
+word_rownames <- as.integer(rownames(sparse_words))
+
+
+```
+
+## Dependent Variable(predicted)
+  
+```{r}
+identifier_join <- tibble(id = word_rownames) |>
+                  left_join(tryout ) |>
+                  dplyr::select(id, classification)
+
+identifier_join[1:5,] |>
+          kbl() |>
+          kable_material_dark("hover") 
+```
+
+## Logistic Regression
+
+it is likely that a a straight line will have some bias, but maybe little variability so I I will be using a logistic regression model since we would like to draw a curved line and predict if its a ham or spam based on the probability of which side are test observation land.
+
+https://www.kirenz.com/blog/posts/2019-09-16-r-text-mining/
+
+Thanks to the blog above I got an idea of how i can fit this model
+using glmnet 
+
+```{r}
+is_spam <- identifier_join$classification == 0
+
+model <- cv.glmnet(sparse_words,
+                   is_spam,
+                   family = "binomial",
+                   parallel = TRUE,
+                   keep = TRUE)
+```
+
+## Viewable Coefficients Models
+Here we get the highest z scores of each side as the negative  side contributes to ham and the other side(positive) contributes to spam.
+```{r}
+coefs <- model$glmnet.fit |>
+         tidy() |>
+         filter(lambda == model$lambda.1se)
+coefs |>
+          kbl() |>
+          kable_material_dark("hover") 
+```
+
+## Lets Evaluate
+```{r}
+intercept <- coefs |>
+             filter(term == "(Intercept)") |>
+             pull(estimate)
+
+classification <- tryout |>
+                unnest_tokens(word, text) |>
+                inner_join(test)|>
+                inner_join(coefs, by = c("word" = "term")) |>
+                group_by(id) |>
+                summarize(score = sum(estimate)) |>
+                mutate(probability = plogis(intercept + score))
+
+classification[1:5,] |>
+          kbl() |>
+          kable_material_dark("hover") 
+```
+
+## Merge to See
+Low probablity means that is not a spam and should be ham, which in other words is goood to go.
+
+```{r}
+results <-  classification |>
+            inner_join(tryout) |>
+            dplyr::select(-c("text")) |>
+            mutate(a = ifelse(classification == 1, "ham", "spam"))
+
+results[1:10,] |>
+          kbl() |>
+          kable_material_dark("hover") 
+
+```
+
+## Visual 
+Because spam emails have alot of formatting language, and ham does not, the words in ham scores very negatively and barely gets close to the threshhold line
+```{r}
+ggplot(results, aes(x = score, y = probability, color = a)) +
+  geom_point() +
+  geom_line(aes(y = probability), color = "slategrey") +
+  labs(x = "Score", y = "Probability") +
+  scale_color_manual(values = c("turquoise4", "orangered1"), name = "Ham or Spam") +
+  theme_minimal() +
+  ggtitle("Logistic Regression Analysis") +
+  labs(subtitle = "Test Data Performance")
+```
+## Sensitivy and Specifity
+Had trouble getting to the ROC and AUC in order to see what threshhold was best but confusion matrix will give me a good evaluation of this model
+```{r}
+confusion_mtx_format <- results |>
+                        mutate(predicted = ifelse(probability >= 0.5, "spam", "ham")) 
+predicted_factor <- factor(confusion_mtx_format$predicted)
+reference_factor <- factor(confusion_mtx_format$a)
+
+confusion_matrix <- confusionMatrix(data = predicted_factor, reference = reference_factor)
+```
+
+## Functionalize CF
+```{r}
+
+draw_confusion_matrix <- function(cm) {
+
+  layout(matrix(c(1,1,2)))
+  par(mar=c(2,2,2,2))
+  plot(c(100, 345), c(300, 450), type = "n", xlab="", ylab="", xaxt='n', yaxt='n')
+  title('CONFUSION MATRIX', cex.main=2)
+
+  # create the matrix 
+  rect(150, 430, 240, 370, col="turquoise4")
+  text(195, 435, 'Ham', cex=1.2)
+  rect(250, 430, 340, 370, col="orangered1")
+  text(295, 435, 'Spam', cex=1.2)
+  text(125, 370, 'Predicted', cex=1.3, srt=90, font=2)
+  text(245, 450, 'Actual', cex=1.3, font=2)
+  rect(150, 305, 240, 365, col="orangered1")
+  rect(250, 305, 340, 365, col="turquoise4")
+  text(140, 400, 'Ham', cex=1.2, srt=90)
+  text(140, 335, 'Spam', cex=1.2, srt=90)
+
+  # add in the cm results 
+  res <- as.numeric(cm$table)
+  text(195, 400, res[1], cex=1.6, font=2, col='white')
+  text(195, 335, res[2], cex=1.6, font=2, col='white')
+  text(295, 400, res[3], cex=1.6, font=2, col='white')
+  text(295, 335, res[4], cex=1.6, font=2, col='white')
+
+  # add in the specifics 
+  plot(c(100, 0), c(100, 0), type = "n", xlab="", ylab="", main = "DETAILS", xaxt='n', yaxt='n')
+  text(10, 85, names(cm$byClass[1]), cex=1.2, font=2)
+  text(10, 70, round(as.numeric(cm$byClass[1]), 3), cex=1.2)
+  text(30, 85, names(cm$byClass[2]), cex=1.2, font=2)
+  text(30, 70, round(as.numeric(cm$byClass[2]), 3), cex=1.2)
+  text(50, 85, names(cm$byClass[5]), cex=1.2, font=2)
+  text(50, 70, round(as.numeric(cm$byClass[5]), 3), cex=1.2)
+  text(70, 85, names(cm$byClass[6]), cex=1.2, font=2)
+  text(70, 70, round(as.numeric(cm$byClass[6]), 3), cex=1.2)
+  text(90, 85, names(cm$byClass[7]), cex=1.2, font=2)
+  text(90, 70, round(as.numeric(cm$byClass[7]), 3), cex=1.2)
+
+  # add in the accuracy information 
+  text(30, 35, names(cm$overall[1]), cex=1.5, font=2)
+  text(30, 20, round(as.numeric(cm$overall[1]), 3), cex=1.4)
+  text(70, 35, names(cm$overall[2]), cex=1.5, font=2)
+  text(70, 20, round(as.numeric(cm$overall[2]), 3), cex=1.4)
+}  
+
+```
+
+## View CF of Tests
+```{r}
+draw_confusion_matrix(confusion_matrix)
+
+```
+# Second Testing Set
+```{r}
+spam_files_2 <- readtext(paste0("spam_2", "/*"), encoding = "UTF-8")
+spam_list_2 <- rep(0, nrow(spam_files_2))
+spam_files_2$classification <- spam_list_2
+spam_files_2 <- spam_files_2 |> dplyr::select(text, classification)
+```
+
+```{r}
+ham_files_ <- readtext(paste0("easy_ham", "/*"), encoding = "UTF-8")
+ham_list_ <- rep(1, nrow(ham_files_))
+ham_files_$classification <- ham_list_
+ham_files_ <- ham_files_ |> dplyr::select(text, classification)
+ham_files_ <- ham_files[501:1200,]
+```
+
+```{r}
+documents_2 <- rbind(ham_files, spam_files) |> mutate(a = ifelse(classification == 0, "spam", "ham"))
+
+```
+
+```{r}
+tryout_2 <- documents_2 |>
+             mutate(id = row_number()) |> 
+             dplyr::select(text, id, classification) |>
+             unnest_tokens(word, text) |>
+             anti_join(stop_words) |>
+             mutate(word = tolower(word)) |>
+            filter(!str_detect(word, "^\\d|^-|^_|\\d|(.)\\1{2,}|@|^(.)\\1$|from|reciev")) |>
+         mutate(word = str_remove(word, "^\\w\\.|^\\w_|^\\w-|\\w:")) |>
+         group_by(id, classification)|>
+         summarise(text = str_flatten(word," "))
+```
+```{r}
+new_test <- tryout_2 |> dplyr::select(id)
+```
+
+```{r}
+classification_2 <- tryout_2 |>
+                unnest_tokens(word, text) |>
+                inner_join(new_test)|>
+                inner_join(coefs, by = c("word" = "term")) |>
+                group_by(id) |>
+                summarize(score = sum(estimate)) |>
+                mutate(probability = plogis(intercept + score))
+
+```
+
+```{r}
+results_2 <-  classification_2 |>
+            inner_join(tryout_2) |>
+            dplyr::select(-c("text")) |>
+            mutate(a = ifelse(classification == 1, "ham", "spam"))
+```
+
+```{r}
+confusion_mtx_format_2 <- results_2 |>
+                        mutate(predicted = ifelse(probability >= 0.5, "spam", "ham")) 
+predicted_factor_2 <- factor(confusion_mtx_format_2$predicted)
+reference_factor_2 <- factor(confusion_mtx_format_2$a)
+
+confusion_matrix_2 <- confusionMatrix(data = predicted_factor_2, reference = reference_factor_2)
+```
+## CF for Second Testing Set
+```{r}
+draw_confusion_matrix(confusion_matrix_2)
+```
+
+
+
